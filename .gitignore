@@ -1,0 +1,11 @@
+# Build
+bin/
+obj/
+*.user
+
+# Logs gerados pelo Serilog em tempo de execucao
+logs/
+*.log
+
+# Configuracao local
+appsettings.*.local.json
