@@ -109,5 +109,39 @@ namespace Animed.Tests.Unit.Application
             Assert.Contains(resultado.Value!.Links, l => l.Rel == "historico_de_cuidados" && l.Href == "/api/historico/pet/7");
             Assert.Contains(resultado.Value.Links, l => l.Rel == "tutor" && l.Href == "/api/tutor/3");
         }
+    
+        [Fact]
+        [Trait("UseCase", "Pet")]
+        public void RegistrarConsulta_DadosValidos_CreditaVintePontos()
+        {
+            // Arrange
+            var dto = new PostConsultaDto { DataHora = DateTime.Now.AddHours(-1), Motivo = "Check-up anual" };
+            _petRepository.Setup(x => x.ObterUm(7)).Returns(_thor);
+            _petRepository.Setup(x => x.AdicionarConsulta(It.IsAny<ConsultaEntity>(), 7)).Returns(new ConsultaEntity { Id = 1, Motivo = "Check-up anual", PetId = 7 });
+
+            // Act
+            var resultado = _petUseCase.RegistrarConsulta(7, dto);
+
+            // Assert
+            Assert.Equal(201, resultado.StatusCode);
+            Assert.Equal(ConsultaEntity.PontosPorConsulta, resultado.Value?.PontosGanhos);
+            _tutorRepository.Verify(x => x.AdicionarPontos(3, ConsultaEntity.PontosPorConsulta), Times.Once);
+            _historicoRepository.Verify(x => x.RegistrarEvento(7, 3, "Thor", It.Is<EventoCuidadoEntity>(e => e.Tipo == "CONSULTA")), Times.Once);
+        }
+
+        [Fact]
+        [Trait("UseCase", "Pet")]
+        public void RegistrarConsulta_DataFutura_Retorna400()
+        {
+            // Arrange
+            var dto = new PostConsultaDto { DataHora = DateTime.Now.AddDays(10), Motivo = "Retorno" };
+
+            // Act
+            var resultado = _petUseCase.RegistrarConsulta(7, dto);
+
+            // Assert
+            Assert.Equal(400, resultado.StatusCode);
+            _petRepository.Verify(x => x.AdicionarConsulta(It.IsAny<ConsultaEntity>(), It.IsAny<int>()), Times.Never);
+        }
     }
 }

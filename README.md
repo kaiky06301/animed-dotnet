@@ -4,9 +4,11 @@ API REST em **ASP.NET Core 8** do Animed, a plataforma de **cuidado contínuo do
 
 O tutor ganha pontos a cada cuidado com o pet (vacina, consulta, pesagem). Com pontos ele sobe de nível e recebe desconto nos parceiros. Esta API cuida de:
 
-- **Tutores, pets e vacinas** no **Oracle**, com Entity Framework Core e migrations.
+- **Tutores, pets, vacinas e consultas** no **Oracle**, com Entity Framework Core e migrations.
 - **Linha do tempo de cuidados** de cada pet no **MongoDB**, com documentos e eventos embutidos.
-- **Pontuação:** registrar uma vacina credita **30 pontos** ao tutor e recalcula o nível (BASICO → CUIDADOR → TUTOR_PREMIUM).
+- **Pontuação:** registrar uma vacina credita **30 pontos** e uma consulta **20 pontos** ao tutor, recalculando o nível (BASICO → CUIDADOR → TUTOR_PREMIUM).
+
+> **Evolução da Sprint 3 → 4:** a API foi reestruturada em **Clean Architecture** (5 projetos), passou a ter **migrations próprias** (`tb_net_*`), ganhou **MongoDB**, **HATEOAS**, **paginação com filtros e ordenação**, **roles no JWT** e **OperationResult**. O histórico de commits da Sprint 3 continua neste repositório.
 
 ---
 
@@ -41,7 +43,7 @@ flowchart LR
     end
 
     subgraph DOM[Animed.Domain]
-        E[Entities<br/>Tutor · Pet · Vacina · Histórico] --- I[Interfaces dos repositórios]
+        E[Entities<br/>Tutor · Pet · Vacina · Consulta · Histórico] --- I[Interfaces dos repositórios]
         ER[Erros customizados<br/>NoContentException · RegraDeNegocioException]
     end
 
@@ -95,7 +97,7 @@ Se o MongoDB estiver fora do ar, a vacina e os pontos continuam salvos no Oracle
 
 | Dado | Banco | Por quê |
 |---|---|---|
-| Usuários, tutores, pets, vacinas | **Oracle** (`tb_net_*`) | Cadastro central com chaves estrangeiras, índice único de e-mail e integridade referencial. |
+| Usuários, tutores, pets, vacinas, consultas | **Oracle** (`tb_net_*`) | Cadastro central com chaves estrangeiras, índice único de e-mail e integridade referencial. |
 | Histórico de cuidados | **MongoDB** (`historico_cuidado`) | Linha do tempo que só cresce. Cada pet tem um documento e seus eventos embutidos, lidos de uma vez, sem JOIN. |
 
 Exemplo de documento no MongoDB:
@@ -142,12 +144,14 @@ O Swagger fica em **`/swagger`**, com descrição, exemplos e respostas de cada 
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
 | GET | `/api/pet` | autenticado | Lista paginada com filtros e ordenação |
-| GET | `/api/pet/{id}` | autenticado | Pet com vacinas e links |
+| GET | `/api/pet/{id}` | autenticado | Pet com vacinas, consultas e links |
 | POST | `/api/pet` | autenticado | Cadastra pet |
 | PUT | `/api/pet/{id}` | autenticado | Edita |
 | DELETE | `/api/pet/{id}` | admin, veterinario | Remove |
 | POST | `/api/pet/{petId}/vacina` | admin, veterinario | Registra vacina, credita 30 pts e grava no histórico |
 | DELETE | `/api/pet/{petId}/vacina/{vacinaId}` | admin, veterinario | Remove vacina |
+| POST | `/api/pet/{petId}/consulta` | admin, veterinario | Registra consulta, credita 20 pts e grava no histórico |
+| DELETE | `/api/pet/{petId}/consulta/{consultaId}` | admin, veterinario | Remove consulta |
 
 ### Histórico de cuidados (MongoDB)
 
@@ -287,7 +291,7 @@ dotnet tool install --global dotnet-ef --version 8.0.10   # se ainda não tiver
 dotnet ef database update --project Animed.Infrastructure --startup-project Animed.API --context ApplicationContext
 ```
 
-A migration `initdb` cria `tb_net_usuario`, `tb_net_tutor`, `tb_net_pet` e `tb_net_vacina`, com índices e chaves estrangeiras em cascata. Ela também cadastra os usuários de demonstração. Como há dois `DbContext`, sempre informe `--context ApplicationContext`. O MongoDB não usa migrations.
+A migration `initdb` cria `tb_net_usuario`, `tb_net_tutor`, `tb_net_pet`, `tb_net_vacina` e `tb_net_consulta`, com índices e chaves estrangeiras em cascata. Ela também cadastra os usuários de demonstração. Como há dois `DbContext`, sempre informe `--context ApplicationContext`. O MongoDB não usa migrations.
 
 ### 4. Subir a API
 
@@ -313,12 +317,12 @@ Acesse **http://localhost:5080/swagger**.
 dotnet test
 ```
 
-São **47 testes** com xUnit, Moq e o padrão **AAA** (Arrange, Act, Assert). Os nomes seguem `Metodo_Cenario_ResultadoEsperado`.
+São **49 testes** com xUnit, Moq e o padrão **AAA** (Arrange, Act, Assert). Os nomes seguem `Metodo_Cenario_ResultadoEsperado`.
 
 | Projeto | Camada | O que cobre |
 |---|---|---|
 | `Animed.Tests.Unit/Domain` | Domínio | Pontos e níveis do tutor, limites de faixa com `[Theory]` e vacina vencida |
-| `Animed.Tests.Unit/Application` | Aplicação | Casos de uso com repositórios mockados (Moq): status do `OperationResult`, links HATEOAS, `next_page`, vacina creditando pontos e gravando histórico, Mongo fora do ar, JWT com role |
+| `Animed.Tests.Unit/Application` | Aplicação | Casos de uso com repositórios mockados (Moq): status do `OperationResult`, links HATEOAS, `next_page`, vacina e consulta creditando pontos e gravando histórico, Mongo fora do ar, JWT com role |
 | `Animed.Tests.Unit/Infrastructure` | Repositórios | EF Core InMemory: filtros, ordenação, paginação, e-mail duplicado, recálculo de nível |
 | `Animed.Tests.Integration` | API | `WebApplicationFactory` com o pipeline real: 401 sem token, 403 por role, 200 com HATEOAS, 404, 400 de validação, 201 de vacina, 204, login inválido, health check |
 

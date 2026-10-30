@@ -18,6 +18,8 @@ namespace Animed.Infrastructure.Data
 
         public DbSet<VacinaEntity> Vacina { get; set; }
 
+        public DbSet<ConsultaEntity> Consulta { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

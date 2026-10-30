@@ -118,5 +118,34 @@ namespace Animed.API.Controllers
 
             return StatusCode(resultado.StatusCode, resultado.Value);
         }
+    
+        [HttpPost("{petId}/consulta")]
+        [Authorize(Roles = "admin,veterinario")]
+        [SwaggerOperation(
+            Summary = "Registrar consulta",
+            Description = "Somente **veterinário/admin**. Salva no Oracle, credita **20 pontos** ao tutor e grava o evento no histórico do MongoDB."
+        )]
+        [SwaggerResponse(statusCode: 201, description: "Consulta registrada", type: typeof(GetConsultaDto))]
+        [SwaggerResponse(statusCode: 404, description: "Pet não encontrado")]
+        public IActionResult PostConsulta(int petId, PostConsultaDto model)
+        {
+            var resultado = _petUseCase.RegistrarConsulta(petId, model);
+
+            if (!resultado.IsSuccess) return StatusCode(resultado.StatusCode, resultado.Error);
+
+            return StatusCode(resultado.StatusCode, resultado.Value);
+        }
+
+        [HttpDelete("{petId}/consulta/{consultaId}")]
+        [Authorize(Roles = "admin,veterinario")]
+        [SwaggerOperation(Summary = "Deletar consulta")]
+        public IActionResult DeleteConsulta(int petId, int consultaId)
+        {
+            var resultado = _petUseCase.DeletarConsulta(petId, consultaId);
+
+            if (!resultado.IsSuccess) return StatusCode(resultado.StatusCode, resultado.Error);
+
+            return StatusCode(resultado.StatusCode, resultado.Value);
+        }
     }
 }

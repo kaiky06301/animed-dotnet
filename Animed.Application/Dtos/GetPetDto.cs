@@ -13,6 +13,8 @@ namespace Animed.Application.Dtos
 
         public IEnumerable<GetVacinaDto> Vacinas { get; set; } = [];
 
+        public IEnumerable<GetConsultaDto> Consultas { get; set; } = [];
+
         public List<LinkDto> Links { get; set; } = new();
     }
 }

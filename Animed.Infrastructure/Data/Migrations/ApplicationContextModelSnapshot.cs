@@ -22,6 +22,38 @@ namespace Animed.Infrastructure.Data.Migrations
 
             OracleModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Animed.Domain.Entities.ConsultaEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("NUMBER(10)");
+
+                    OraclePropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DataHora")
+                        .HasColumnType("TIMESTAMP(7)");
+
+                    b.Property<string>("Diagnostico")
+                        .HasColumnType("NVARCHAR2(2000)");
+
+                    b.Property<string>("Motivo")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("NVARCHAR2(200)");
+
+                    b.Property<int>("PetId")
+                        .HasColumnType("NUMBER(10)");
+
+                    b.Property<string>("Prescricao")
+                        .HasColumnType("NVARCHAR2(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PetId");
+
+                    b.ToTable("tb_net_consulta");
+                });
+
             modelBuilder.Entity("Animed.Domain.Entities.PetEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -190,6 +222,17 @@ namespace Animed.Infrastructure.Data.Migrations
                     b.ToTable("tb_net_vacina");
                 });
 
+            modelBuilder.Entity("Animed.Domain.Entities.ConsultaEntity", b =>
+                {
+                    b.HasOne("Animed.Domain.Entities.PetEntity", "Pet")
+                        .WithMany("Consultas")
+                        .HasForeignKey("PetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Pet");
+                });
+
             modelBuilder.Entity("Animed.Domain.Entities.PetEntity", b =>
                 {
                     b.HasOne("Animed.Domain.Entities.TutorEntity", "Tutor")
@@ -214,6 +257,8 @@ namespace Animed.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Animed.Domain.Entities.PetEntity", b =>
                 {
+                    b.Navigation("Consultas");
+
                     b.Navigation("Vacinas");
                 });
 

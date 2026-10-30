@@ -32,6 +32,7 @@ namespace Animed.Application.Mappers
                 Castrado = obj.Castrado,
                 TutorId = obj.TutorId,
                 Vacinas = obj.Vacinas?.Select(x => x.ToVacinaDto()).ToList() ?? Enumerable.Empty<GetVacinaDto>().ToList(),
+                Consultas = obj.Consultas?.OrderByDescending(x => x.DataHora).Select(x => x.ToConsultaDto()).ToList() ?? Enumerable.Empty<GetConsultaDto>().ToList(),
                 Links = links?.ToList() ?? Enumerable.Empty<LinkDto>().ToList()
             };
         }
@@ -43,6 +44,30 @@ namespace Animed.Application.Mappers
                 NomeVacina = obj.NomeVacina,
                 DataAplicacao = obj.DataAplicacao,
                 DataProximaDose = obj.DataProximaDose
+            };
+        }
+
+        public static ConsultaEntity ToConsultaEntity(this PostConsultaDto obj)
+        {
+            return new ConsultaEntity
+            {
+                DataHora = obj.DataHora,
+                Motivo = obj.Motivo,
+                Diagnostico = obj.Diagnostico,
+                Prescricao = obj.Prescricao
+            };
+        }
+
+        public static GetConsultaDto ToConsultaDto(this ConsultaEntity obj, int pontosGanhos = 0)
+        {
+            return new GetConsultaDto
+            {
+                Id = obj.Id,
+                DataHora = obj.DataHora,
+                Motivo = obj.Motivo,
+                Diagnostico = obj.Diagnostico,
+                Prescricao = obj.Prescricao,
+                PontosGanhos = pontosGanhos
             };
         }
 

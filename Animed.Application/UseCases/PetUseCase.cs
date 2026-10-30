@@ -35,6 +35,7 @@ namespace Animed.Application.UseCases
                 new LinkDto($"/api/pet/{id}", "update_pet", "PUT"),
                 new LinkDto($"/api/pet/{id}", "delete_pet", "DELETE"),
                 new LinkDto($"/api/pet/{id}/vacina", "registrar_vacina", "POST"),
+                new LinkDto($"/api/pet/{id}/consulta", "registrar_consulta", "POST"),
                 new LinkDto($"/api/historico/pet/{id}", "historico_de_cuidados", "GET"),
                 new LinkDto($"/api/tutor/{tutorId}", "tutor", "GET"),
             };
@@ -231,6 +232,73 @@ namespace Animed.Application.UseCases
             {
                 _logger.LogError("[ERROR] - {0}", ex.Message);
                 return OperationResult<GetVacinaDto?>.Failure("Ocorreu um erro ao deletar a vacina", (int)HttpStatusCode.BadRequest);
+            }
+        }
+    
+        /// <summary>
+        /// Registra a consulta no Oracle, credita os pontos ao tutor e
+        /// guarda o evento na linha do tempo do pet no MongoDB.
+        /// </summary>
+        public OperationResult<GetConsultaDto?> RegistrarConsulta(int petId, PostConsultaDto entity)
+        {
+            try
+            {
+                if (entity.DataHora > DateTime.Now.AddDays(1))
+                    throw new RegraDeNegocioException("Só é possível registrar consultas já realizadas");
+
+                var pet = _petRepository.ObterUm(petId);
+                var consulta = _petRepository.AdicionarConsulta(entity.ToConsultaEntity(), petId);
+
+                _tutorRepository.AdicionarPontos(pet!.TutorId, ConsultaEntity.PontosPorConsulta);
+
+                try
+                {
+                    _historicoRepository.RegistrarEvento(pet.Id, pet.TutorId, pet.Nome, new EventoCuidadoEntity
+                    {
+                        Tipo = "CONSULTA",
+                        Descricao = $"Consulta: {entity.Motivo}",
+                        Pontos = ConsultaEntity.PontosPorConsulta,
+                        Data = DateTime.UtcNow
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Consulta {Id} salva, mas o histórico no MongoDB falhou: {Erro}", consulta?.Id, ex.Message);
+                }
+
+                return OperationResult<GetConsultaDto?>.Success(consulta?.ToConsultaDto(ConsultaEntity.PontosPorConsulta), (int)HttpStatusCode.Created);
+            }
+            catch (RegraDeNegocioException ex)
+            {
+                return OperationResult<GetConsultaDto?>.Failure(ex.Message, (int)HttpStatusCode.BadRequest);
+            }
+            catch (NoContentException ex)
+            {
+                return OperationResult<GetConsultaDto?>.Failure(ex.Message, (int)HttpStatusCode.NotFound);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("[ERROR] - {0}", ex.Message);
+                return OperationResult<GetConsultaDto?>.Failure("Ocorreu um erro ao registrar a consulta", (int)HttpStatusCode.BadRequest);
+            }
+        }
+
+        public OperationResult<GetConsultaDto?> DeletarConsulta(int petId, int consultaId)
+        {
+            try
+            {
+                var result = _petRepository.DeletarConsulta(consultaId, petId);
+
+                return OperationResult<GetConsultaDto?>.Success(result?.ToConsultaDto(), (int)HttpStatusCode.OK);
+            }
+            catch (NoContentException ex)
+            {
+                return OperationResult<GetConsultaDto?>.Failure(ex.Message, (int)HttpStatusCode.NotFound);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("[ERROR] - {0}", ex.Message);
+                return OperationResult<GetConsultaDto?>.Failure("Ocorreu um erro ao deletar a consulta", (int)HttpStatusCode.BadRequest);
             }
         }
     }

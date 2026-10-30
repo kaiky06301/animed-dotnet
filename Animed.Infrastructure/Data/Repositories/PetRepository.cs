@@ -121,6 +121,7 @@ namespace Animed.Infrastructure.Data.Repositories
 
                 var resultado = consulta
                     .Include(x => x.Vacinas)
+                    .Include(x => x.Consultas)
                     .Skip(Deslocamento)
                     .Take(RegistroRetornado)
                     .ToList();
@@ -146,6 +147,7 @@ namespace Animed.Infrastructure.Data.Repositories
                 var pet = _context
                     .Pet
                     .Include(x => x.Vacinas)
+                    .Include(x => x.Consultas)
                     .FirstOrDefault(x => x.Id == Id);
 
                 if (pet is null) throw new NoContentException("Não foi encontrado o pet");
@@ -198,6 +200,53 @@ namespace Animed.Infrastructure.Data.Repositories
                 _context.SaveChanges();
 
                 return vacina;
+            }
+            catch (NoContentException ex)
+            {
+                throw new NoContentException(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message, ex);
+            }
+        }
+    
+        public ConsultaEntity? AdicionarConsulta(ConsultaEntity entity, int petId)
+        {
+            try
+            {
+                if (!_context.Pet.Any(x => x.Id == petId))
+                    throw new NoContentException("Não foi encontrado o pet");
+
+                entity.PetId = petId;
+
+                _context.Consulta.Add(entity);
+                _context.SaveChanges();
+
+                return entity;
+            }
+            catch (NoContentException ex)
+            {
+                throw new NoContentException(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message, ex);
+            }
+        }
+
+        public ConsultaEntity? DeletarConsulta(int consultaId, int petId)
+        {
+            try
+            {
+                var consulta = _context.Consulta.FirstOrDefault(x => x.Id == consultaId && x.PetId == petId);
+
+                if (consulta is null) throw new NoContentException("Não foi encontrada a consulta");
+
+                _context.Consulta.Remove(consulta);
+                _context.SaveChanges();
+
+                return consulta;
             }
             catch (NoContentException ex)
             {

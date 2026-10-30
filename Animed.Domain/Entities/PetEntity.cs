@@ -27,5 +27,8 @@ namespace Animed.Domain.Entities
 
         //1:N
         public ICollection<VacinaEntity>? Vacinas { get; set; } = [];
+
+        //1:N
+        public ICollection<ConsultaEntity>? Consultas { get; set; } = [];
     }
 }

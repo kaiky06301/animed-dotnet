@@ -12,5 +12,8 @@ namespace Animed.Domain.Interfaces
 
         VacinaEntity? AdicionarVacina(VacinaEntity entity, int petId);
         VacinaEntity? DeletarVacina(int vacinaId, int petId);
+
+        ConsultaEntity? AdicionarConsulta(ConsultaEntity entity, int petId);
+        ConsultaEntity? DeletarConsulta(int consultaId, int petId);
     }
 }

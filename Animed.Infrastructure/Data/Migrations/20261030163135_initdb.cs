@@ -74,6 +74,29 @@ namespace Animed.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "tb_net_consulta",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "NUMBER(10)", nullable: false)
+                        .Annotation("Oracle:Identity", "START WITH 1 INCREMENT BY 1"),
+                    DataHora = table.Column<DateTime>(type: "TIMESTAMP(7)", nullable: false),
+                    Motivo = table.Column<string>(type: "NVARCHAR2(200)", maxLength: 200, nullable: false),
+                    Diagnostico = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
+                    Prescricao = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
+                    PetId = table.Column<int>(type: "NUMBER(10)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_tb_net_consulta", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_tb_net_consulta_tb_net_pet_PetId",
+                        column: x => x.PetId,
+                        principalTable: "tb_net_pet",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "tb_net_vacina",
                 columns: table => new
                 {
@@ -106,6 +129,11 @@ namespace Animed.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_tb_net_consulta_PetId",
+                table: "tb_net_consulta",
+                column: "PetId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_tb_net_pet_TutorId_Nome",
                 table: "tb_net_pet",
                 columns: new[] { "TutorId", "Nome" });
@@ -131,6 +159,9 @@ namespace Animed.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "tb_net_consulta");
+
             migrationBuilder.DropTable(
                 name: "tb_net_usuario");
 

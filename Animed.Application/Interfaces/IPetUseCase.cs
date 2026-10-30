@@ -13,5 +13,8 @@ namespace Animed.Application.Interfaces
 
         OperationResult<GetVacinaDto?> RegistrarVacina(int petId, PostVacinaDto entity);
         OperationResult<GetVacinaDto?> DeletarVacina(int petId, int vacinaId);
+
+        OperationResult<GetConsultaDto?> RegistrarConsulta(int petId, PostConsultaDto entity);
+        OperationResult<GetConsultaDto?> DeletarConsulta(int petId, int consultaId);
     }
 }
