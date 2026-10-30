@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="AnimedApi.IntegrationTests/AnimedApi.IntegrationTests.csproj" />
-  <Project Path="AnimedApi.UnitTests/AnimedApi.UnitTests.csproj" />
-  <Project Path="AnimedApi/AnimedApi.csproj" />
-</Solution>

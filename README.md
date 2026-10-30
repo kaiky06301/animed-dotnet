@@ -1,142 +1,368 @@
-# Animed API (.NET)
+# 🐾 Animed API (.NET)
 
-API REST em **ASP.NET Core / .NET 10** para o produto **Animed** (cliente **Clyvo VET**), um
-aplicativo de saude e bem-estar de pets. Esta API .NET compartilha o **mesmo banco Oracle** da API
-Java (Spring Boot) do squad: o schema pertence e e versionado pela API Java (Flyway); aqui o
-**EF Core apenas mapeia** as tabelas existentes (`ToTable`/`HasColumnName`), **sem migrations**.
+API REST em **ASP.NET Core 8** do Animed, a plataforma de **cuidado contínuo do pet** criada para o Challenge FIAP 2026 em parceria com a **Clyvo VET**.
 
-Escopo mapeado: **Tutor**, **Pet**, **Consulta** e **Vacina** (CRUD completo), com autenticacao JWT,
-observabilidade (health checks, logs estruturados, tracing e metricas) e testes unitarios e de integracao.
+O tutor ganha pontos a cada cuidado com o pet (vacina, consulta, pesagem). Com pontos ele sobe de nível e recebe desconto nos parceiros. Esta API cuida de:
 
-## Stack
+- **Tutores, pets e vacinas** no **Oracle**, com Entity Framework Core e migrations.
+- **Linha do tempo de cuidados** de cada pet no **MongoDB**, com documentos e eventos embutidos.
+- **Pontuação:** registrar uma vacina credita **30 pontos** ao tutor e recalcula o nível (BASICO → CUIDADOR → TUTOR_PREMIUM).
 
-- .NET 10 / ASP.NET Core (Controllers)
-- Entity Framework Core 10 + provider Oracle (`Oracle.EntityFrameworkCore`)
-- Autenticacao JWT (`Microsoft.AspNetCore.Authentication.JwtBearer`)
-- Serilog (logs estruturados) + OpenTelemetry (tracing e metricas)
-- Swagger / OpenAPI (Swashbuckle) em ambiente de desenvolvimento
-- Testes: xUnit + NSubstitute (unitarios) e WebApplicationFactory + SQLite in-memory (integracao)
+---
 
-## Arquitetura (camadas)
+## 👥 Squad Animed
 
+| Integrante | RM |
+|------------|-----|
+| **Kaiky de Oliveira Silva** (líder) | 566067 |
+| Erick Bernardes Bradaschia | 565733 |
+| Gabriel Santos Claudino | 564054 |
+| Jonathan Moreira Gomes | 565060 |
+| Lucas Fortes de Lima | 559523 |
+
+**Vídeo de demonstração:** _(link do YouTube)_
+
+---
+
+## 🏛️ Arquitetura
+
+Clean Architecture com cinco projetos. As dependências apontam sempre para o **Domain**:
+
+```mermaid
+flowchart LR
+    Cliente([Swagger / App Mobile]) -->|HTTP + JWT| API
+
+    subgraph API[Animed.API · Presentation]
+        C[Controllers] --> MW[JWT · Rate Limit · Compressão<br/>Serilog · Health Checks<br/>Tratamento global de erros]
+    end
+
+    subgraph APP[Animed.Application]
+        UC[UseCases<br/>OperationResult + HATEOAS] --> DTO[DTOs + Mappers]
+    end
+
+    subgraph DOM[Animed.Domain]
+        E[Entities<br/>Tutor · Pet · Vacina · Histórico] --- I[Interfaces dos repositórios]
+        ER[Erros customizados<br/>NoContentException · RegraDeNegocioException]
+    end
+
+    subgraph INF[Animed.Infrastructure]
+        R[Repositories] --> CTX1[(ApplicationContext<br/>EF Core · Oracle)]
+        R --> CTX2[(MongoApplicationContext<br/>EF Core · MongoDB)]
+        S[EnderecoService<br/>RestSharp]
+    end
+
+    IOC[Animed.IoC<br/>Bootstrap] -.registra.-> UC
+    IOC -.registra.-> R
+
+    C --> UC
+    UC --> I
+    R -.implementa.-> I
+    S --> VIACEP[[ViaCEP]]
+    CTX1 --> ORA[(Oracle FIAP)]
+    CTX2 --> MONGO[(MongoDB)]
 ```
-Controllers  -> recebem HTTP, retornam status (finos; sem regra de negocio)
-Services     -> regra de aplicacao (orquestra repositorios, valida FKs), traduz Entidade <-> DTO
-Domain       -> entidades com factories (Criar/Atualizar) que garantem invariantes (DomainException)
-Repositories -> acesso a dados via EF Core (interfaces, para serem testaveis/mockaveis)
-DbContext    -> mapeia as tabelas TB_* do Oracle
+
+| Projeto | Responsabilidade |
+|---|---|
+| `Animed.Domain` | Entidades e regras puras: `TutorEntity.AdicionarPontos`, `NivelTutor.Calcular`, `VacinaEntity.Vencida`. Também as interfaces dos repositórios, os erros customizados e o `OperationResult<T>`. |
+| `Animed.Application` | Casos de uso que orquestram os repositórios e devolvem `OperationResult` com o status HTTP. Também os DTOs de entrada e saída, os mappers e os links HATEOAS. |
+| `Animed.Infrastructure` | Os dois `DbContext` (Oracle e MongoDB), os repositórios concretos, o serviço externo ViaCEP, os health checks e as migrations. |
+| `Animed.IoC` | `Bootstrap.AddIoC`: registra contextos, repositórios e casos de uso na injeção de dependência. |
+| `Animed.API` | Controllers, Swagger com exemplos, JWT, rate limiting, compressão, Serilog, health checks e o tratamento global de exceções. |
+
+### Fluxo principal: registrar uma vacina
+
+```mermaid
+sequenceDiagram
+    participant V as Veterinário
+    participant API as PetController
+    participant UC as PetUseCase
+    participant ORA as Oracle
+    participant MG as MongoDB
+    V->>API: POST /api/pet/7/vacina (JWT role veterinario)
+    API->>UC: RegistrarVacina(7, dto)
+    UC->>UC: valida datas (RegraDeNegocioException)
+    UC->>ORA: salva vacina
+    UC->>ORA: tutor.AdicionarPontos(30) e recalcula o nível
+    UC->>MG: adiciona evento VACINA no histórico do pet
+    UC-->>API: OperationResult 201 + pontos ganhos
+    API-->>V: 201 Created
 ```
 
-Erros sao centralizados em um **exception handler global** (`GlobalExceptionHandler`): regra de
-dominio/argumento invalido vira **400**; erro inesperado vira **500** (formato `ProblemDetails`).
-Validacao de entrada (`[Required]`, `[EmailAddress]`, etc.) e automatica via `[ApiController]`.
+Se o MongoDB estiver fora do ar, a vacina e os pontos continuam salvos no Oracle. A falha fica registrada como *warning* no log.
 
-## Pre-requisitos
+### Persistência poliglota
 
-- .NET SDK 10
-- Acesso ao Oracle da FIAP (para rodar a API de fato; os testes **nao** precisam de banco)
+| Dado | Banco | Por quê |
+|---|---|---|
+| Usuários, tutores, pets, vacinas | **Oracle** (`tb_net_*`) | Cadastro central com chaves estrangeiras, índice único de e-mail e integridade referencial. |
+| Histórico de cuidados | **MongoDB** (`historico_cuidado`) | Linha do tempo que só cresce. Cada pet tem um documento e seus eventos embutidos, lidos de uma vez, sem JOIN. |
 
-## Configuracao
-
-A **connection string** e a **chave JWT** de producao ficam em **user-secrets** (nunca no repositorio).
-
-```bash
-# na pasta AnimedApi
-dotnet user-secrets set "ConnectionStrings:AnimedDatabase" "User Id=RMxxxxxx;Password=xxxxxx;Data Source=oracle.fiap.com.br:1521/ORCL"
-dotnet user-secrets set "Jwt:Key" "uma-chave-secreta-longa-para-assinar-os-tokens"
-```
-
-Em **desenvolvimento**, `appsettings.Development.json` ja traz uma `Jwt:Key` de teste e as credenciais
-de login (`Auth:Usuario` / `Auth:Senha` = `admin` / `admin`) para subir rapidamente. **Troque em producao.**
-
-## Rodando a API
-
-```bash
-cd AnimedApi
-dotnet run
-```
-
-Swagger (em Development): `https://localhost:<porta>/swagger`.
-
-## Autenticacao
-
-Todos os endpoints de negocio exigem **JWT**. Fluxo:
-
-1. `POST /api/auth/login` com corpo `{ "usuario": "admin", "senha": "admin" }` -> devolve `{ token, expiraEm }`.
-2. Envie o token no header: `Authorization: Bearer <token>` nas demais chamadas.
-
-Sem token, os endpoints protegidos respondem **401**.
-
-## Endpoints
-
-| Metodo | Rota                     | Descricao                        | Auth |
-|--------|--------------------------|----------------------------------|------|
-| POST   | `/api/auth/login`        | Login, devolve token JWT         | Nao  |
-| GET    | `/health`                | Health check (status do Oracle)  | Nao  |
-| GET/POST/PUT/DELETE | `/api/tutores`  | CRUD de tutores                  | Sim  |
-| GET/POST/PUT/DELETE | `/api/pets`     | CRUD de pets (`?tutorId=`)       | Sim  |
-| GET/POST/PUT/DELETE | `/api/consultas`| CRUD de consultas (`?petId=` etc)| Sim  |
-| GET/POST/PUT/DELETE | `/api/vacinas`  | CRUD de vacinas (`?petId=`)      | Sim  |
-
-## Observabilidade
-
-### Health Checks
-
-- **Endpoint:** `GET /health` (aberto, sem token, para monitoramento externo).
-- Usa `Microsoft.Extensions.Diagnostics.HealthChecks`. A verificacao `oracle`
-  (`OracleHealthCheck`) testa a conectividade real com o banco via `Database.CanConnectAsync()`.
-- **Resposta (JSON):**
+Exemplo de documento no MongoDB:
 
 ```json
 {
-  "status": "Healthy",
-  "duracao": "00:00:00.0123",
-  "verificacoes": [
-    { "nome": "oracle", "status": "Healthy", "descricao": "Conexao com o Oracle OK." }
+  "_id": "6721c0f2a9e4b1d3c8f0a111",
+  "PetId": 7,
+  "TutorId": 3,
+  "NomePet": "Thor",
+  "Eventos": [
+    { "Tipo": "VACINA", "Descricao": "Vacina V10 aplicada", "Pontos": 30, "Data": "2026-10-30T14:00:00Z" },
+    { "Tipo": "PESAGEM", "Descricao": "28 kg", "Pontos": 5, "Data": "2026-10-31T10:00:00Z" }
   ]
 }
 ```
 
-- **Como monitorar:** aponte um monitor de uptime (ou o proprio orquestrador) para `GET /health`.
-  `status` = `Healthy` (HTTP 200) indica app + banco OK; `Unhealthy` (HTTP 503) indica falha de
-  conectividade com o Oracle.
+---
 
-### Logs (Serilog)
+## 🔌 Endpoints
 
-- Logs estruturados com niveis **Information / Warning / Error**.
-- Saida para **console** e para **arquivo** (`logs/animed-<data>.log`, um arquivo por dia).
-- `UseSerilogRequestLogging` registra cada requisicao (metodo, rota, status e tempo de resposta),
-  servindo de correlacao por requisicao.
+O Swagger fica em **`/swagger`**, com descrição, exemplos e respostas de cada rota. Para autenticar, gere o token em `POST /api/auth` e cole no botão **Authorize**.
 
-### Tracing e metricas (OpenTelemetry)
+### Autenticação e usuários
 
-- Servico identificado como `AnimedApi`.
-- **Tracing** e **metricas** de requisicoes HTTP via `AddAspNetCoreInstrumentation`, exportados para
-  o **console** (`AddConsoleExporter`). As metricas incluem tempo de resposta e permitem calcular a
-  taxa de erros por status HTTP. Trocar o exporter (ex.: OTLP) integra a um backend como Jaeger/Prometheus.
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| POST | `/api/auth` | público (5 req/20s) | Gera o JWT (8h) com a role do usuário |
+| POST | `/api/user` | admin | Cria usuário (tutor, veterinario, admin) |
 
-## Testes
+### Tutores (Oracle)
 
-Estrutura separada em dois projetos:
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/tutor` | admin, veterinario | Lista paginada com filtros e ordenação |
+| GET | `/api/tutor/{id}` | autenticado | Um tutor com pontos, nível e links |
+| POST | `/api/tutor` | admin, veterinario | Cadastra (começa com 0 pts, BASICO) |
+| PUT | `/api/tutor/{id}` | autenticado | Edita |
+| DELETE | `/api/tutor/{id}` | admin | Remove o tutor e, em cascata, os pets e vacinas |
+| GET | `/api/tutor/endereco/{cep}` | público (10 req/30s) | Endereço pelo ViaCEP (serviço externo) |
 
-- **`AnimedApi.UnitTests`** — testes unitarios (xUnit + NSubstitute), padrao **AAA** e nomes
-  `Metodo_Cenario_ResultadoEsperado`:
-  - `Domain/` — invariantes das entidades (ex.: peso do pet > 0, data de vacina nao futura).
-  - `Services/` — regra de aplicacao com repositorios mockados.
-- **`AnimedApi.IntegrationTests`** — sobem a API real com `WebApplicationFactory<Program>` e um
-  **SQLite in-memory** no lugar do Oracle. Usam **Collection Fixture** para compartilhar a instancia.
-  Cobrem autenticacao (login valido/invalido, 401 sem token) e endpoints (respostas de sucesso e de erro).
+### Pets e vacinas (Oracle)
 
-Rodar todos:
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/pet` | autenticado | Lista paginada com filtros e ordenação |
+| GET | `/api/pet/{id}` | autenticado | Pet com vacinas e links |
+| POST | `/api/pet` | autenticado | Cadastra pet |
+| PUT | `/api/pet/{id}` | autenticado | Edita |
+| DELETE | `/api/pet/{id}` | admin, veterinario | Remove |
+| POST | `/api/pet/{petId}/vacina` | admin, veterinario | Registra vacina, credita 30 pts e grava no histórico |
+| DELETE | `/api/pet/{petId}/vacina/{vacinaId}` | admin, veterinario | Remove vacina |
 
-```bash
-dotnet test          # na raiz da solution (Animed.slnx)
+### Histórico de cuidados (MongoDB)
+
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/historico` | autenticado | Lista paginada (filtro `TutorId`) |
+| GET | `/api/historico/{id}` | autenticado | Um documento pelo ObjectId |
+| GET | `/api/historico/pet/{petId}` | autenticado | Linha do tempo do pet, do mais recente ao mais antigo |
+| POST | `/api/historico/pet/{petId}/evento` | admin, veterinario | Adiciona um evento embutido |
+| DELETE | `/api/historico/{id}` | admin | Remove o documento |
+
+### Paginação, filtros e ordenação
+
+```
+GET /api/tutor?Deslocamento=0&RegistroRetornado=10&Nome=mari&Nivel=CUIDADOR&OrdenarPor=pontos&Decrescente=true
+GET /api/pet?TutorId=3&Especie=GATO&OrdenarPor=peso
 ```
 
-## Observacoes
+| Parâmetro | Uso |
+|---|---|
+| `Deslocamento`, `RegistroRetornado` | paginação por offset (padrão 0 e 10) |
+| `Nome` | trecho do nome, sem diferenciar maiúsculas |
+| `Nivel` (tutor), `Especie` e `TutorId` (pet) | filtros exatos |
+| `OrdenarPor` | tutor: `nome`, `pontos`, `id` · pet: `nome`, `peso`, `id` |
+| `Decrescente` | `true` inverte a ordem |
 
-- Os testes de integracao usam SQLite in-memory: validam roteamento, autenticacao, status e regra de
-  negocio, mas **nao** validam detalhes especificos do Oracle (tipos, identity, CHECK). Isso e
-  intencional para os testes rodarem sem banco externo.
-- Aviso `NU1903` (pacote transitivo `Microsoft.OpenApi`, usado pelo Swashbuckle): nao e bloqueante;
-  sera resolvido ao atualizar o Swashbuckle para uma versao que traga o pacote corrigido.
+### HATEOAS
+
+Toda consulta devolve `links`. Nas listas também vêm `next_page` e `previous_page` quando existem.
+
+```json
+{
+  "items": [
+    {
+      "id": 7, "nome": "Thor", "especie": "CACHORRO", "tutorId": 3,
+      "vacinas": [ { "id": 1, "nomeVacina": "V10", "vencida": false } ],
+      "links": [
+        { "href": "/api/pet/7", "rel": "get_um_pet", "method": "GET" },
+        { "href": "/api/pet/7", "rel": "update_pet", "method": "PUT" },
+        { "href": "/api/pet/7", "rel": "delete_pet", "method": "DELETE" },
+        { "href": "/api/pet/7/vacina", "rel": "registrar_vacina", "method": "POST" },
+        { "href": "/api/historico/pet/7", "rel": "historico_de_cuidados", "method": "GET" },
+        { "href": "/api/tutor/3", "rel": "tutor", "method": "GET" }
+      ]
+    }
+  ],
+  "deslocamento": 0, "registroRetornado": 10, "totalRegistros": 12,
+  "links": [
+    { "href": "/api/pet?Deslocamento=0&RegistroRetornado=10", "rel": "self", "method": "GET" },
+    { "href": "/api/pet", "rel": "create_pet", "method": "POST" },
+    { "href": "/api/pet?Deslocamento=10&RegistroRetornado=10", "rel": "next_page", "method": "GET" }
+  ]
+}
+```
+
+### Respostas e erros
+
+Os casos de uso devolvem `OperationResult<T>`, e o controller só repassa o status:
+
+| Situação | Status |
+|---|---|
+| Consulta ou edição com sucesso | 200 |
+| Criação | 201 |
+| Lista vazia | 204 |
+| Validação do DTO ou regra de negócio (`RegraDeNegocioException`) | 400 |
+| Sem token ou login inválido | 401 |
+| Role sem permissão | 403 |
+| Registro não encontrado (`NoContentException`) | 404 |
+| E-mail já cadastrado | 409 |
+| Excesso de requisições (rate limit) | 429 |
+| Erro inesperado (tratamento global, com `rastreio` para achar no log) | 500 |
+
+---
+
+## 📈 Monitoramento e observabilidade
+
+### Health checks
+
+| Rota | O que verifica |
+|---|---|
+| `GET /health/live` | A API está de pé (liveness) |
+| `GET /health/db` | Oracle e MongoDB (readiness) |
+| `GET /api/health/live` | Liveness em JSON detalhado |
+| `GET /api/health/db` | Cada banco com status, descrição e erro |
+| `GET /api/health/externo` | Disponibilidade do ViaCEP (`Degraded` se cair) |
+
+```json
+{
+  "status": "Healthy",
+  "duracaoMs": 412.7,
+  "checks": [
+    { "name": "oracle", "status": "Healthy", "description": null, "error": null },
+    { "name": "mongodb", "status": "Healthy", "description": "MongoDB respondendo (3 históricos)", "error": null }
+  ]
+}
+```
+
+### Logging estruturado (Serilog)
+
+- Logs no **console** e em **arquivo diário** (`logs/api-AAAAMMDD.log`, guardados por 7 dias).
+- Níveis: **Information** para fluxo normal (cadastros, vacinas), **Warning** para buscas vazias, login inválido e falha do MongoDB, **Error** para exceções.
+- `UseSerilogRequestLogging` registra cada requisição com método, rota, status e tempo de resposta. O `RequestId` correlaciona as linhas de uma mesma requisição.
+
+### Tracing e métricas
+
+O **Application Insights** (Azure Monitor + OpenTelemetry) liga quando `ApplicationInsights:ConnectionString` está configurada. Ele rastreia as requisições entre as camadas, as chamadas ao Oracle, ao MongoDB e ao ViaCEP, e mostra tempo de resposta e taxa de erros. Sem a connection string, a API roda normalmente, só sem telemetria.
+
+---
+
+## ▶️ Como executar
+
+### Pré-requisitos
+
+- .NET SDK 8
+- Docker (para o MongoDB local)
+- Acesso ao Oracle da FIAP
+
+### 1. MongoDB
+
+```bash
+docker run -d --name mongo-animed -p 27017:27017 mongo:7
+```
+
+### 2. Configuração
+
+Em `Animed.API/appsettings.Development.json`, troque `SEU_RM` e `SUA_SENHA` pelo usuário do Oracle da FIAP e defina uma `Secretkey` com 32 caracteres ou mais. Para não gravar a senha no arquivo, use variáveis de ambiente:
+
+```bash
+export ConnectionStrings__Oracle="Data Source=(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=oracle.fiap.com.br)(PORT=1521)))(CONNECT_DATA=(SERVER=DEDICATED)(SID=ORCL)));User Id=RM000000;Password=******;"
+export Secretkey="uma-chave-secreta-com-pelo-menos-32-caracteres"
+```
+
+### 3. Banco Oracle (migrations)
+
+```bash
+dotnet tool install --global dotnet-ef --version 8.0.10   # se ainda não tiver
+dotnet ef database update --project Animed.Infrastructure --startup-project Animed.API --context ApplicationContext
+```
+
+A migration `initdb` cria `tb_net_usuario`, `tb_net_tutor`, `tb_net_pet` e `tb_net_vacina`, com índices e chaves estrangeiras em cascata. Ela também cadastra os usuários de demonstração. Como há dois `DbContext`, sempre informe `--context ApplicationContext`. O MongoDB não usa migrations.
+
+### 4. Subir a API
+
+```bash
+dotnet run --project Animed.API --urls http://localhost:5080
+```
+
+Acesse **http://localhost:5080/swagger**.
+
+### Usuários de demonstração
+
+| E-mail | Senha | Role |
+|---|---|---|
+| admin@animed.com.br | animed123 | admin |
+| doutor@animed.com.br | animed123 | veterinario |
+| tutor@animed.com.br | animed123 | tutor |
+
+---
+
+## 🧪 Testes
+
+```bash
+dotnet test
+```
+
+São **47 testes** com xUnit, Moq e o padrão **AAA** (Arrange, Act, Assert). Os nomes seguem `Metodo_Cenario_ResultadoEsperado`.
+
+| Projeto | Camada | O que cobre |
+|---|---|---|
+| `Animed.Tests.Unit/Domain` | Domínio | Pontos e níveis do tutor, limites de faixa com `[Theory]` e vacina vencida |
+| `Animed.Tests.Unit/Application` | Aplicação | Casos de uso com repositórios mockados (Moq): status do `OperationResult`, links HATEOAS, `next_page`, vacina creditando pontos e gravando histórico, Mongo fora do ar, JWT com role |
+| `Animed.Tests.Unit/Infrastructure` | Repositórios | EF Core InMemory: filtros, ordenação, paginação, e-mail duplicado, recálculo de nível |
+| `Animed.Tests.Integration` | API | `WebApplicationFactory` com o pipeline real: 401 sem token, 403 por role, 200 com HATEOAS, 404, 400 de validação, 201 de vacina, 204, login inválido, health check |
+
+**Fixtures:**
+- `BancoEmMemoriaFixture`, compartilhado com `[Collection("BancoEmMemoria")]`, cria um banco em memória isolado por teste.
+- `AnimedApiFactory`, compartilhado com `[Collection("Api")]`, sobe a API uma vez e gera JWT por role.
+
+Para rodar só uma parte:
+
+```bash
+dotnet test Animed.Tests.Unit
+dotnet test Animed.Tests.Integration
+dotnet test --filter "Trait=UseCase"
+```
+
+---
+
+## 🧰 Stack
+
+| Tecnologia | Uso |
+|---|---|
+| ASP.NET Core 8 (Controllers) | API REST |
+| Entity Framework Core 8 + Oracle.EntityFrameworkCore | Persistência relacional e migrations (compatibilidade Oracle 19c) |
+| MongoDB.EntityFrameworkCore | Persistência NoSQL com o mesmo padrão de `DbContext` |
+| JWT Bearer | Autenticação e autorização por roles |
+| Swashbuckle + Annotations + Filters | Swagger com descrições e exemplos |
+| Serilog | Logging estruturado (console e arquivo) |
+| AspNetCore.HealthChecks.Oracle | Health check do Oracle |
+| Azure Monitor OpenTelemetry | Tracing e métricas (Application Insights) |
+| RestSharp | Consumo do ViaCEP |
+| Rate Limiter e Response Compression (Brotli/Gzip) | Proteção e desempenho |
+| xUnit, Moq, EF Core InMemory, Mvc.Testing | Testes unitários e de integração |
+
+---
+
+## 🗂️ Estrutura
+
+```
+Animed.sln
+├── Animed.Domain/            Entities · Errors · Interfaces
+├── Animed.Application/       Dtos · Mappers · Interfaces · UseCases
+├── Animed.Infrastructure/    Data (Contexts, Repositories, Migrations) · Service · HealthChecks
+├── Animed.IoC/               Bootstrap
+├── Animed.API/               Controllers · Config · Doc/Samples · Program.cs
+├── Animed.Tests.Unit/        Domain · Application · Infrastructure · Fixtures
+└── Animed.Tests.Integration/ Controllers · Fixtures
+```
