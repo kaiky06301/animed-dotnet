@@ -153,6 +153,17 @@ O Swagger fica em **`/swagger`**, com descrição, exemplos e respostas de cada 
 | POST | `/api/pet/{petId}/consulta` | admin, veterinario | Registra consulta, credita 20 pts e grava no histórico |
 | DELETE | `/api/pet/{petId}/consulta/{consultaId}` | admin, veterinario | Remove consulta |
 
+### Packages PL/SQL (Oracle · integração com Database)
+
+Estes endpoints executam os **packages da disciplina de Database** (tabelas `TB_*` do mesmo schema Oracle), pela mesma conexão do EF Core. Os erros de negócio do package (`RAISE_APPLICATION_ERROR`) viram os erros customizados da API.
+
+| Método | Rota | Acesso | Objeto executado |
+|---|---|---|---|
+| POST | `/api/package/vacina` | admin, veterinario | `PKG_ANIMED_NEGOCIO.PRC_REGISTRAR_VACINA`: grava a vacina, +30 pts e histórico. O gatilho recalcula o nível. ORA-20010 vira 404 e ORA-20011 vira 400 |
+| GET | `/api/package/desconto?nivel=&valorBruto=&moedas=` | autenticado | `PKG_ANIMED_NEGOCIO.FN_CALCULA_DESCONTO` |
+| GET | `/api/package/nivel/{pontos}` | autenticado | `PKG_ANIMED_NEGOCIO.FN_CALCULA_NIVEL` |
+| GET | `/api/package/dataset` | admin | `PKG_ANIMED_JSON.FN_DATASET_JSON`: dataset JSON montado pelo package (vai para o MongoDB) |
+
 ### Histórico de cuidados (MongoDB)
 
 | Método | Rota | Acesso | Descrição |
@@ -317,7 +328,7 @@ Acesse **http://localhost:5080/swagger**.
 dotnet test
 ```
 
-São **49 testes** com xUnit, Moq e o padrão **AAA** (Arrange, Act, Assert). Os nomes seguem `Metodo_Cenario_ResultadoEsperado`.
+São **52 testes** com xUnit, Moq e o padrão **AAA** (Arrange, Act, Assert). Os nomes seguem `Metodo_Cenario_ResultadoEsperado`.
 
 | Projeto | Camada | O que cobre |
 |---|---|---|

@@ -43,6 +43,10 @@ namespace Animed.IoC
 
 
             services.AddTransient<IEnderecoService, EnderecoService>();
+
+
+            services.AddTransient<IPackageAnimedRepository, PackageAnimedRepository>();
+            services.AddTransient<IPackageAnimedUseCase, PackageAnimedUseCase>();
         }
     }
 }
